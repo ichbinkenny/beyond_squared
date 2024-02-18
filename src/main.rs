@@ -1,13 +1,15 @@
 use hidapi::*;
-use std::error::Error;
+use std::{error::Error, sync::Arc, thread};
 use egui::*;
 use eframe::{egui, App};
+use std::sync::mpsc::channel;
 
 const BEYOND_VID: u16 = 0x35BD;
 const BEYOND_PID: u16 = 0x0101;
 const SET_LED_COLOR_CMD: u8 = 0x4C;
 const SET_FAN_SPEED_CMD: u8 = 0x46;
 const SET_BRIGHTNESS_CMD: u8 = 0x49;
+const WAKEUP_CMD: u8 = 0x5a;
 
 const MIN_FAN_SPEED: u8 = 40;
 const MAX_FAN_SPEED: u8 = 100;
@@ -60,6 +62,11 @@ impl App for MyApp {
                 }
             }
             ui.add(egui::Slider::new(&mut self.fan_speed, MIN_FAN_SPEED..=MAX_FAN_SPEED).text("Fan Speed"));
+            if ui.button("Wake up").clicked() {
+                if let Some(dev) = self.device.as_mut() {
+                    wakeup_beyond(dev);
+                }
+            }
         });
         if self.fan_speed != current_fan_speed {
             if let Some(dev) = self.device.as_mut() {
@@ -113,6 +120,12 @@ fn set_beyond_brightness(dev: &HidDevice, brightness: u8) {
     command[1] = SET_BRIGHTNESS_CMD;
     command[2] = actual_brightness_value[0];
     command[3] = actual_brightness_value[1];
+    let _ = dev.send_feature_report(&command);
+}
+
+fn wakeup_beyond(dev: &HidDevice) {
+    let mut command = [0; 65];
+    command[1] = WAKEUP_CMD;
     let _ = dev.send_feature_report(&command);
 }
 
