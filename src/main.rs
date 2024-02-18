@@ -7,9 +7,14 @@ const BEYOND_VID: u16 = 0x35BD;
 const BEYOND_PID: u16 = 0x0101;
 const SET_LED_COLOR_CMD: u8 = 0x4C;
 const SET_FAN_SPEED_CMD: u8 = 0x46;
+const SET_BRIGHTNESS_CMD: u8 = 0x49;
 
 const MIN_FAN_SPEED: u8 = 40;
 const MAX_FAN_SPEED: u8 = 100;
+
+const MIN_BRIGHTNESS: u16 = 0x0032;
+const MAX_BRIGHTNESS: u16 = 0x010a;
+const BRIGHTNESS_STEP: f32 = 2.15;
 
 // Break command into struct
 // Create gui
@@ -29,6 +34,7 @@ struct MyApp {
     current_color: Color32,
     device: Option<HidDevice>,
     fan_speed: u8,
+    brightness: u8,
 }
 
 impl Default for MyApp {
@@ -37,6 +43,7 @@ impl Default for MyApp {
             current_color: Color32::default(),
             device: None,
             fan_speed: 40,
+            brightness: 50,
         }
     }
 }
@@ -44,17 +51,24 @@ impl Default for MyApp {
 impl App for MyApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let current_fan_speed = self.fan_speed;
+        let current_brightness = self.brightness;
         egui::CentralPanel::default().show(ctx, |ui|{
+            ui.add(egui::Slider::new(&mut self.brightness, 0..=100).text("Brightness"));
             if egui::color_picker::color_picker_color32(ui, &mut self.current_color, color_picker::Alpha::Opaque) {
                 if let Some(dev) = self.device.as_mut() {
                     set_beyond_led_color(dev, self.current_color.to_array());
                 }
             }
-            ui.add(egui::Slider::new(&mut self.fan_speed, 40..=100).text("Fan Speed"));
+            ui.add(egui::Slider::new(&mut self.fan_speed, MIN_FAN_SPEED..=MAX_FAN_SPEED).text("Fan Speed"));
         });
         if self.fan_speed != current_fan_speed {
             if let Some(dev) = self.device.as_mut() {
                 set_beyond_fan_speed(&dev, self.fan_speed);
+            }
+        }
+        if self.brightness != current_brightness {
+            if let Some(dev) = self.device.as_mut() {
+                set_beyond_brightness(&dev, self.brightness);
             }
         }
     }
@@ -66,6 +80,7 @@ impl MyApp {
             current_color: Color32::default(),
             device: Some(dev),
             fan_speed: 40,
+            brightness: 50,
         }
     }
 }
@@ -90,4 +105,26 @@ fn set_beyond_fan_speed(dev: &HidDevice, speed: u8) {
         command[2] = speed;
     }
     let _ = dev.send_feature_report(&command);
+}
+
+fn set_beyond_brightness(dev: &HidDevice, brightness: u8) {
+    let actual_brightness_value = compute_brightness_value(brightness as u16);
+    let mut command = [0; 65];
+    command[1] = SET_BRIGHTNESS_CMD;
+    command[2] = actual_brightness_value[0];
+    command[3] = actual_brightness_value[1];
+    let _ = dev.send_feature_report(&command);
+}
+
+fn compute_brightness_value(brightness: u16) -> [u8; 2] {
+    if brightness >= MAX_BRIGHTNESS {
+        // Currently not supporting override settings
+        // It looks like big endian data is coming over the bus
+        return MAX_BRIGHTNESS.to_be_bytes();
+    } else if brightness <= MIN_BRIGHTNESS {
+        return MIN_BRIGHTNESS.to_be_bytes();
+    } else {
+        let computed_brightness = ((BRIGHTNESS_STEP * brightness as f32) + MIN_BRIGHTNESS as f32).floor() as u16;
+        return computed_brightness.to_be_bytes();
+    }
 }
